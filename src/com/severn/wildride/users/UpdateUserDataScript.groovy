@@ -8,22 +8,24 @@ def ds = DatastoreServiceFactory.getDatastoreService()
 def mc = MemcacheServiceFactory.getMemcacheService('default')
 def ents = []
 
-def addGems = 0
-def addCoins = 0
-def userId = 6237013304934400l
+def addGems = 75
+def addCoins = 15000
+def userId = 6386708048248832l
 
 def mc_keys = []
 mc_keys << 'User_' + userId << 'CustomState_UserState_' + userId << 'CustomState_UserReward_' + userId
 
 def entity = ds.get(KeyFactory.createKey('User', userId))
 
+logger.log(Level.FINE, 'User entity before {0}', entity)
+
 // Update User Entity
 def lives = Math.max(entity.getProperty('lives'), 5)
 entity.setUnindexedProperty("lives", lives)
 
-def lvl = entity.getProperty('level') // + 1
+def lvl = entity.getProperty('level') + 1
 entity.setProperty("level", lvl);
-entity.setUnindexedProperty("experience", 100000d);
+entity.setUnindexedProperty("experience", 1d);
 
 def coins = entity.getProperty('balance')
 entity.setUnindexedProperty("maxBalance", coins + addCoins );
@@ -31,10 +33,16 @@ entity.setUnindexedProperty("balance", coins + addCoins );
 
 def gems = entity.getProperty('gems')
 entity.setUnindexedProperty("gems", gems + addGems);
+
+logger.log(Level.FINE, 'User entity after {0}', entity)
+
 ents << entity
 
 // PROFILE UPDATE
 def dataEntity = ds.get(KeyFactory.createKey('CustomState', "UserState_$userId"))
+
+logger.log(Level.FINE, 'UserData entity before {0}', dataEntity)
+
 def json = dataEntity.getProperty('data').value
 
 logger.log(Level.FINE, "JSON : $json")
@@ -47,14 +55,17 @@ logger.log(Level.FINE, "Parsed : $result")
 result.Gems = result.Gems + addGems
 result.Lives = lives
 result.Coins = result.Coins + addCoins
-result.Level = 98// result.Level + 1
-result.Experience = 100000
+result.Level = result.Level + 1
+result.Experience = 1
 
 def newJson = JsonOutput.toJson(result)
 
 logger.log(Level.FINE, "NEW JSON : $newJson")
  
 dataEntity.setUnindexedProperty('data', new Text(newJson))
+
+logger.log(Level.FINE, 'UserData entity after {0}', dataEntity)
+
 ents << dataEntity
 
 mc.deleteAll(mc_keys)
