@@ -8,9 +8,9 @@ def ds = DatastoreServiceFactory.getDatastoreService()
 def mc = MemcacheServiceFactory.getMemcacheService('default')
 def ents = []
 
-def addGems = 75
-def addCoins = 15000
-def userId = 6386708048248832l
+def addGems = 900
+def addCoins = 30000
+def userId = 6291842857435136l
 
 def mc_keys = []
 mc_keys << 'User_' + userId << 'CustomState_UserState_' + userId << 'CustomState_UserReward_' + userId
@@ -61,7 +61,11 @@ result.Experience = 1
 def newJson = JsonOutput.toJson(result)
 
 logger.log(Level.FINE, "NEW JSON : $newJson")
- 
+
+newJson = JsonOutput.prettyPrint(newJson)
+
+logger.log(Level.FINE, "NEW JSON (pretty) : $newJson")
+
 dataEntity.setUnindexedProperty('data', new Text(newJson))
 
 logger.log(Level.FINE, 'UserData entity after {0}', dataEntity)
