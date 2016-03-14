@@ -1,0 +1,117 @@
+import java.util.logging.*;
+
+import javax.mail.*;
+import javax.mail.internet.*;
+
+import org.springframework.context.ApplicationContext;
+
+import com.google.api.services.bigquery.Bigquery;
+import com.google.api.services.bigquery.model.GetQueryResultsResponse;
+import com.google.api.services.bigquery.model.QueryRequest;
+import com.google.api.services.bigquery.model.QueryResponse;
+import com.google.api.services.bigquery.model.TableCell;
+import com.google.api.services.bigquery.model.TableRow;
+import com.google.appengine.api.datastore.*;
+import com.severn.common.bigquery.BigQueryServiceSupport;
+import com.severn.common.update.user.EntityUpdaters.EntityAwareEntityFieldUpdater;
+
+Logger logger = Logger.getLogger('com.severn')
+
+ApplicationContext ctx = binding.variables.get('applicationContext')
+BigQueryServiceSupport bigQueryClient = ctx.getBean('bigQueryServiceSupport')
+Bigquery bigquery = bigQueryClient.getBigQuery()
+DatastoreService ds = DatastoreServiceFactory.getDatastoreService()
+
+def querySql = 'SELECT user_id, platform_id, date(session_ts) as dt, datediff(current_timestamp(), timestamp(session_ts)) as df FROM [DWH.raw_sessions] group by 1,2,3,4 order by 1,2,3';
+
+QueryResponse query = bigquery.jobs().query(bigQueryClient.getProjectId(),
+    new QueryRequest().setQuery(querySql))
+    .execute();
+
+// Execute it
+GetQueryResultsResponse queryResult = bigquery.jobs().getQueryResults(
+    query.getJobReference().getProjectId(),
+    query.getJobReference().getJobId()).execute();
+
+List<TableRow> rows = queryResult.getRows();
+
+Long previousUserId = null 
+String previousPlatform = null
+Entity entity = null 
+def ents = [], c = 0
+
+rows.each {
+    List<TableCell> cells = it.getF()
+
+    Long currentUserId = Long.parseLong(cells.get(0).getV())
+    String currentPlatform = cells.get(1).getV()
+
+    logger.log(Level.FINEST, "Iterating ${it}. UserId ${currentUserId}, platform ${currentPlatform}")
+
+    if (!previousUserId || !previousPlatform || previousUserId.longValue() != currentUserId.longValue() || !previousPlatform.equals(currentPlatform)) {
+        if (entity) {
+            ents << entity
+        }
+        c++
+        // i.e. new User/Platform
+        entity = new Entity('UserSeniority', "${currentUserId}_${currentPlatform}".toString())
+        entity.setUnindexedProperty('updateTs', System.currentTimeMillis())
+        entity.setUnindexedProperty('history', new ArrayList<Long>())
+    }
+
+    BitSet bs = BitSet.valueOf(extract(entity.getProperty('history')))
+    bs.set(Long.parseLong(cells.get(3).getV()).intValue())
+    entity.setUnindexedProperty('history', wrap(bs.toLongArray()))
+
+    previousUserId = currentUserId
+    previousPlatform = currentPlatform
+    
+    if (ents.size() == 200) {
+        ds.put(ents)
+        ents = []
+    }
+}
+
+if (ents) {
+    ds.put(ents)
+}
+
+def result = "Done. Created $c".toString()
+notifyEnded('sergey.shcherbovich@synesis.ru', bigQueryClient.getServiceAccountId(), result)
+result
+
+long[] extract(List<Long> history) {
+    long[] model = new long[history.size()];
+    for (int idx = 0; idx < history.size(); idx++) {
+        model[idx] = history.get(idx);
+    }
+    model
+}
+
+List<Long> wrap(long[] model) {
+    ArrayList<Long> wrapped = new ArrayList<Long>(model.length)
+    for (long m : model) {
+        wrapped.add(Long.valueOf(m))
+    }
+    wrapped
+}
+
+void notifyEnded(def reciever, def sender, def message) {
+    Properties props = new Properties();
+    Session session = Session.getDefaultInstance(props, null);
+    
+    try {
+        MimeMessage msg = new MimeMessage(session);
+        msg.setFrom(new InternetAddress(sender, "Script executor module"));
+        msg.addRecipient(Message.RecipientType.TO,
+         new InternetAddress(reciever, "Dear DEV"));
+        msg.setSubject("Script was executed successfully at ${new Date()}");
+        msg.setText(message);
+        Transport.send(msg);
+    
+    } catch (AddressException e) {
+        Logger.getLogger('com.severn').log(Level.WARNING, "Got", e)
+    } catch (MessagingException e) {
+        Logger.getLogger('com.severn').log(Level.WARNING, "Got", e)
+    }
+}
