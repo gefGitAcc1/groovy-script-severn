@@ -6,6 +6,7 @@ import javax.mail.internet.*;
 import org.springframework.context.ApplicationContext;
 
 import com.google.api.services.bigquery.Bigquery;
+import com.google.api.services.bigquery.Bigquery.Jobs.GetQueryResults;
 import com.google.api.services.bigquery.model.GetQueryResultsResponse;
 import com.google.api.services.bigquery.model.QueryRequest;
 import com.google.api.services.bigquery.model.QueryResponse;
@@ -28,47 +29,63 @@ QueryResponse query = bigquery.jobs().query(bigQueryClient.getProjectId(),
     new QueryRequest().setQuery(querySql))
     .execute();
 
+logger.log(Level.FINE, 'Query {0}', query)
+
 // Execute it
-GetQueryResultsResponse queryResult = bigquery.jobs().getQueryResults(
-    query.getJobReference().getProjectId(),
-    query.getJobReference().getJobId()).execute();
+String pgToken = "start"
+GetQueryResults getQueryResults = bigquery.jobs().getQueryResults(query.getJobReference().getProjectId(), query.getJobReference().getJobId())
 
-List<TableRow> rows = queryResult.getRows();
+logger.log(Level.FINE, 'GetQueryResults {0}', getQueryResults)
 
-Long previousUserId = null 
+Long previousUserId = null
 String previousPlatform = null
-Entity entity = null 
-def ents = [], c = 0
+Entity entity = null
+def ents = [], c = 0, totalRecs = 0
 
-rows.each {
-    List<TableCell> cells = it.getF()
+while (pgToken) {
+    GetQueryResultsResponse queryResult = getQueryResults.execute();
+    pgToken = queryResult.getPageToken()
 
-    Long currentUserId = Long.parseLong(cells.get(0).getV())
-    String currentPlatform = cells.get(1).getV()
+//    logger.log(Level.FINE, 'GetQueryResultsResponse {0}', queryResult)
 
-    logger.log(Level.FINEST, "Iterating ${it}. UserId ${currentUserId}, platform ${currentPlatform}")
+    List<TableRow> rows = queryResult.getRows();
+    logger.log(Level.FINE, "Got ${rows.size()}, new token ${pgToken}")
 
-    if (!previousUserId || !previousPlatform || previousUserId.longValue() != currentUserId.longValue() || !previousPlatform.equals(currentPlatform)) {
-        if (entity) {
-            ents << entity
+    rows.each {
+        totalRecs++
+        List<TableCell> cells = it.getF()
+
+        Long currentUserId = Long.parseLong(cells.get(0).getV())
+        String currentPlatform = cells.get(1).getV()
+
+//        logger.log(Level.FINEST, "Iterating ${it}. UserId ${currentUserId}, platform ${currentPlatform}")
+
+        if (!previousUserId || !previousPlatform || previousUserId.longValue() != currentUserId.longValue() || !previousPlatform.equals(currentPlatform)) {
+            if (entity) {
+                ents << entity
+            }
+            c++
+            // i.e. new User/Platform
+            entity = new Entity('UserSeniority', "${currentUserId}_${currentPlatform}".toString())
+            entity.setUnindexedProperty('updateTs', System.currentTimeMillis())
+            entity.setUnindexedProperty('history', new ArrayList<Long>())
         }
-        c++
-        // i.e. new User/Platform
-        entity = new Entity('UserSeniority', "${currentUserId}_${currentPlatform}".toString())
-        entity.setUnindexedProperty('updateTs', System.currentTimeMillis())
-        entity.setUnindexedProperty('history', new ArrayList<Long>())
+
+        BitSet bs = BitSet.valueOf(extract(entity.getProperty('history')))
+        bs.set(Long.parseLong(cells.get(3).getV()).intValue())
+        entity.setUnindexedProperty('history', wrap(bs.toLongArray()))
+
+        previousUserId = currentUserId
+        previousPlatform = currentPlatform
+
+        if (ents.size() == 200) {
+            ds.put(ents)
+            ents = []
+        }
     }
 
-    BitSet bs = BitSet.valueOf(extract(entity.getProperty('history')))
-    bs.set(Long.parseLong(cells.get(3).getV()).intValue())
-    entity.setUnindexedProperty('history', wrap(bs.toLongArray()))
-
-    previousUserId = currentUserId
-    previousPlatform = currentPlatform
-    
-    if (ents.size() == 200) {
-        ds.put(ents)
-        ents = []
+    if (pgToken) {
+        getQueryResults.setPageToken(pgToken)
     }
 }
 
@@ -76,7 +93,7 @@ if (ents) {
     ds.put(ents)
 }
 
-def result = "Done. Created $c".toString()
+def result = "Done. Created $c. Total records $totalRecs".toString()
 notifyEnded('sergey.shcherbovich@synesis.ru', bigQueryClient.getServiceAccountId(), result)
 result
 
