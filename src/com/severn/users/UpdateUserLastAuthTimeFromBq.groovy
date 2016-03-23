@@ -28,8 +28,12 @@ Logger logger = Logger.getLogger('com.severn')
 
 Iterator res = BigQueryScriptUtils.executeQuery("SELECT user_id, max(session_ts) as sts FROM [DWH.raw_sessions] GROUP BY 1")
 res.each { it ->
-    results++
-    mapRes.put((Long.parseLong(it[0])), Double.parseDouble(it[1]).longValue() * 1000)
+    try {
+        mapRes.put((Long.parseLong(it[0])), Double.parseDouble(it[1].toString()).longValue() * 1000)
+        results++
+    } catch (Exception e) {
+        logger.log(Level.WARNING, "Bad ${it}")
+    }
 }
 
 logger.log(Level.FINE, "Mapping size ${mapRes.size()}")
@@ -46,7 +50,7 @@ def updateEntity = {
 }
 def mcKeyProvider = {  "User_${it.key.id}".toString()  }
 
-def info = DatastoreSciptUtils.processEntities('User', shouldUpdate, updateEntity, mcKeyProvider, [capacity: '250', limit: '5000'])
+def info = DatastoreSciptUtils.processEntities('User', shouldUpdate, updateEntity, mcKeyProvider, [capacity: '250', limit: '50000'])
 
 def result = 'Ok ' + info + ', rows ' + results
 notifyEnded('sergey.shcherbovich@synesis.ru', bigQueryClient.getServiceAccountId(), result)
