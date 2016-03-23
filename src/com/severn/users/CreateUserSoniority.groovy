@@ -23,12 +23,16 @@ BigQueryServiceSupport bigQueryClient = ctx.getBean('bigQueryServiceSupport')
 Bigquery bigquery = bigQueryClient.getBigQuery()
 DatastoreService ds = DatastoreServiceFactory.getDatastoreService()
 
-def querySql = 'SELECT user_id, platform_id, date(session_ts) as dt, datediff(current_timestamp(), timestamp(session_ts)) as df FROM [DWH.raw_sessions] group by 1,2,3,4 order by 1,2,3';
+String querySql = 'SELECT user_id, platform_id, session_ts as ts, date(session_ts) as dt, datediff(current_timestamp(), timestamp(session_ts)) as df ' +
+    ' FROM [DWH.raw_sessions] ' +
+    ' WHERE user_id IS NOT NULL AND platform_id IS NOT NULL AND session_ts IS NOT NULL' +
+    ' group by 1,2,3,4,5 ' +
+    ' order by 1,2,3,4 ';
 
 QueryResponse query = bigquery.jobs().query(bigQueryClient.getProjectId(),
-    new QueryRequest().setQuery(querySql))
+    new QueryRequest().setQuery(querySql).setTimeoutMs(Integer.MAX_VALUE))
     .execute();
-
+    
 logger.log(Level.FINE, 'Query {0}', query)
 
 // Execute it
@@ -46,10 +50,8 @@ while (pgToken) {
     GetQueryResultsResponse queryResult = getQueryResults.execute();
     pgToken = queryResult.getPageToken()
 
-//    logger.log(Level.FINE, 'GetQueryResultsResponse {0}', queryResult)
-
     List<TableRow> rows = queryResult.getRows();
-    logger.log(Level.FINE, "Got ${rows.size()}, new token ${pgToken}")
+//    logger.log(Level.FINE, "Got ${rows.size()}, new token ${pgToken}")
 
     rows.each {
         totalRecs++
@@ -57,8 +59,6 @@ while (pgToken) {
 
         Long currentUserId = Long.parseLong(cells.get(0).getV())
         String currentPlatform = cells.get(1).getV()
-
-//        logger.log(Level.FINEST, "Iterating ${it}. UserId ${currentUserId}, platform ${currentPlatform}")
 
         if (!previousUserId || !previousPlatform || previousUserId.longValue() != currentUserId.longValue() || !previousPlatform.equals(currentPlatform)) {
             if (entity) {
@@ -68,11 +68,12 @@ while (pgToken) {
             // i.e. new User/Platform
             entity = new Entity('UserSeniority', "${currentUserId}_${currentPlatform}".toString())
             entity.setUnindexedProperty('updateTs', System.currentTimeMillis())
+            entity.setUnindexedProperty('createTs', 1000l * Double.parseDouble(cells.get(2).getV()).longValue())
             entity.setUnindexedProperty('history', new ArrayList<Long>())
         }
 
         BitSet bs = BitSet.valueOf(extract(entity.getProperty('history')))
-        bs.set(Long.parseLong(cells.get(3).getV()).intValue())
+        bs.set(Long.parseLong(cells.get(4).getV()).intValue())
         entity.setUnindexedProperty('history', wrap(bs.toLongArray()))
 
         previousUserId = currentUserId
