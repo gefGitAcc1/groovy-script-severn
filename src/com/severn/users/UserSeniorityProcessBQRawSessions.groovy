@@ -1,4 +1,5 @@
 import java.nio.channels.Channels;
+import java.util.BitSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -108,7 +109,7 @@ class Runner implements Callable<Long> {
                     data.model = shiftLeft(currentModel, diff)
                     data.model.set(0)
                 }
-                long[] arr = data.model.toLongArray()
+                long[] arr = getInverted(data.model).toLongArray()
                 for (int idx = 1; idx < 7; idx++) {
                     raw << ( arr.length >= idx ? arr[idx-1] : null )
                 }
@@ -157,5 +158,17 @@ class Runner implements Callable<Long> {
         }
         return result;
     }
+    
+    BitSet getInverted(BitSet bs) {
+        int max = bs.previousSetBit(Integer.MAX_VALUE)
+        BitSet bsInv = new BitSet()
+        int set = Integer.MAX_VALUE
+        for (int idx = 0; idx < bs.cardinality(); idx++ ) {
+            set = bs.previousSetBit(set - 1)
+            bsInv.set(max - set)
+        }
+        return bsInv
+    }
+
     
 }
