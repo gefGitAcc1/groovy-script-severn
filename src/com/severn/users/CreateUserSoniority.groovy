@@ -19,6 +19,7 @@ import com.google.api.services.bigquery.model.TableCell;
 import com.google.api.services.bigquery.model.TableRow;
 import com.google.appengine.api.ThreadManager;
 import com.google.appengine.api.datastore.*;
+import com.google.appengine.repackaged.org.joda.time.DateTime;
 import com.severn.common.bigquery.BigQueryServiceSupport;
 import com.severn.common.services.GoogleServiceFactory;
 import com.severn.script.utils.BigQueryScriptUtils;
@@ -27,7 +28,7 @@ Logger logger = Logger.getLogger('com.severn')
 
 DatastoreService ds = DatastoreServiceFactory.getDatastoreService()
 def dataSet = 'DWH', table = 'raw_sessions'
-def batchesCount = 10
+def batchesCount = 100
 
 def usersRaw = BigQueryScriptUtils.executeQuery("SELECT max(user_id) as max_uid, min(user_id) as min_uid FROM [${dataSet}.${table}] WHERE user_id is not null AND platform_id IS NOT NULL AND session_ts IS NOT NULL").next()
 long minUid = Long.parseLong(usersRaw[1]), maxUid = Long.parseLong(usersRaw[0]), diff = (maxUid - minUid) / batchesCount
@@ -63,7 +64,7 @@ batches.each { batch ->
     results << f
 }
 
-logger.log(Level.FINE, "Waiting for results ${results}")
+logger.log(Level.FINE, "Waiting for results ${results?.size()}")
 
 for (Future<Long> f : results) {
     c += f.get()
@@ -88,45 +89,58 @@ class TaskRunner implements Callable<Long> {
     public Long call() throws Exception {
         logger.log(Level.FINE, "${Thread.currentThread()} - Kicking off ${batch}")
         def totalRecs = 0, previousUserId = 0l, previousPlatform = 0l, entity = null, ents = [], c = 0l
-
-        def sql = String.format(sqlPattern, "and user_id >= ${batch.from} and user_id <=${batch.to}".toString())
-
-        def raws = BigQueryScriptUtils.executeQuery(sql)
-
-        logger.log(Level.FINE, "${Thread.currentThread()} - Got results")
-
+        Key key = KeyFactory.createKey('ScriptBatchResult', "${batch.from}_${batch.to}".toString())
         DatastoreService ds = GoogleServiceFactory.getRetryingDatastoreService()
-        raws.each { cells ->
-            totalRecs++
-            Long currentUserId = Long.parseLong(cells[0])
-            String currentPlatform = cells[1]
+        try {
+            GoogleServiceFactory.getDatastoreService().get(key)
+            logger.log(Level.FINE, "${Thread.currentThread()} - ${batch} was already processed")
+            return 0l
+        } catch (EntityNotFoundException enfe) {
+            def sql = String.format(sqlPattern, "and user_id >= ${batch.from} and user_id <=${batch.to}".toString())
 
-            if (!previousUserId || !previousPlatform || previousUserId.longValue() != currentUserId.longValue() || !previousPlatform.equals(currentPlatform)) {
-                c++
-                // i.e. new User/Platform
-                entity = new Entity('UserSeniority', "${currentUserId}_${currentPlatform}".toString())
-                entity.setUnindexedProperty('updateTs', System.currentTimeMillis())
-                entity.setUnindexedProperty('createTs', 1000l * Double.parseDouble(cells[2]).longValue())
-                entity.setUnindexedProperty('history', new ArrayList<Long>())
+            def raws = BigQueryScriptUtils.executeQuery(sql)
 
-                ents << entity
+            logger.log(Level.FINE, "${Thread.currentThread()} - Got results")
+
+            raws.each { cells ->
+                totalRecs++
+                Long currentUserId = Long.parseLong(cells[0])
+                String currentPlatform = cells[1]
+
+                if (!previousUserId || !previousPlatform || previousUserId.longValue() != currentUserId.longValue() || !previousPlatform.equals(currentPlatform)) {
+                    c++
+                    // i.e. new User/Platform
+                    entity = new Entity('UserSeniority', "${currentUserId}_${currentPlatform}".toString())
+                    entity.setUnindexedProperty('updateTs', System.currentTimeMillis())
+                    entity.setUnindexedProperty('createTs', 1000l * Double.parseDouble(cells[2]).longValue())
+                    entity.setUnindexedProperty('history', new ArrayList<Long>())
+
+                    ents << entity
+                }
+
+                BitSet bs = BitSet.valueOf(extract(entity.getProperty('history')))
+                bs.set(Long.parseLong(cells[4]).intValue())
+                entity.setUnindexedProperty('history', wrap(bs.toLongArray()))
+
+                previousUserId = currentUserId
+                previousPlatform = currentPlatform
+
+                if (ents.size() == 500) {
+                    logger.log(Level.FINE, "${Thread.currentThread()} - Flushing ${ents.size()} entities")
+                    ds.put(ents)
+                    ents = []
+                }
             }
-
-            BitSet bs = BitSet.valueOf(extract(entity.getProperty('history')))
-            bs.set(Long.parseLong(cells[4]).intValue())
-            entity.setUnindexedProperty('history', wrap(bs.toLongArray()))
-
-            previousUserId = currentUserId
-            previousPlatform = currentPlatform
-
-            if (ents.size() == 500) {
-                logger.log(Level.FINE, "${Thread.currentThread()} - Flushing ${ents.size()} entities")
+            if (ents) {
                 ds.put(ents)
-                ents = []
             }
-        }
-        if (ents) {
-            ds.put(ents)
+
+            def e = new Entity(key)
+            e.setProperty('completed', System.currentTimeMillis())
+            e.setUnindexedProperty('doneAt', DateTime.now().toString())
+            e.setUnindexedProperty('recsProcessed', totalRecs)
+            e.setUnindexedProperty('dataPosted', c)
+            ds.put(e)
         }
         logger.log(Level.FINE, "Done ${c} of ${totalRecs}")
         return totalRecs;
