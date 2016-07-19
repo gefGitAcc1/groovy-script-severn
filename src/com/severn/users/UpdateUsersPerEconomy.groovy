@@ -1,4 +1,3 @@
-package com.severn.wildride.users
 import java.sql.ResultSet
 import java.sql.SQLException;
 import java.util.logging.*;
