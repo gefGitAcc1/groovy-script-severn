@@ -14,8 +14,10 @@ import javax.mail.*;
 import javax.mail.internet.*
 import javax.sql.*
 
-import com.google.appengine.api.datastore.*;
-import com.google.appengine.api.memcache.*;
+import com.google.appengine.api.datastore.*
+import com.google.appengine.api.memcache.*
+import com.google.apphosting.api.ApiProxy
+
 import com.severn.common.domain.User;
 import com.severn.script.utils.BigQueryScriptUtils;
 import com.severn.script.utils.DatastoreSciptUtils;
@@ -68,16 +70,16 @@ def mcKeyProvider = {  "User_${it.key.id}".toString()  }
 def info = DatastoreSciptUtils.processEntities('User', shouldUpdate, updateEntity, mcKeyProvider, [capacity: '250', limit: '50000'])
 
 def result = 'Ok ' + info
-notifyEnded('sergey.shcherbovich@synesis.ru', 'severn-stage-1@appspot.gserviceaccount.com', result)
+notifyEnded('sergey.shcherbovich@synesis.ru', result)
 result
 
-void notifyEnded(def reciever, def sender, def message) {
+void notifyEnded(def reciever, def message) {
     Properties props = new Properties();
     Session session = Session.getDefaultInstance(props, null);
     
     try {
         MimeMessage msg = new MimeMessage(session);
-        msg.setFrom(new InternetAddress(sender, "Script executor module"));
+        msg.setFrom(new InternetAddress("${ApiProxy.getCurrentEnvironment().getAppId().replace('s~', '')}@appspot.gserviceaccount.com", "Script executor module"));
         msg.addRecipient(Message.RecipientType.TO,
          new InternetAddress(reciever, "Dear DEV"));
         msg.setSubject("Script was executed successfully at ${new Date()}");
