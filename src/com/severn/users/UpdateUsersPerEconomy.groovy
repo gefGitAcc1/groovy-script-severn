@@ -61,8 +61,12 @@ def shouldUpdate = {
 def updateEntity = {
     Entity entity = it
     Integer level = entity.getProperty('level')?.intValue()
+
+    level++
+
     Double xp = mapping[level]
     entity.setUnindexedProperty('experience', xp)
+    entity.setProperty('level', level)
     entity
 }
 def mcKeyProvider = {  "User_${it.key.id}".toString()  }
