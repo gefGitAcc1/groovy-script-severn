@@ -20,19 +20,20 @@ import com.google.appengine.api.datastore.*;
 import com.google.appengine.api.memcache.*;
 import com.google.appengine.tools.cloudstorage.*;
 import com.severn.common.bigquery.*;
-import com.severn.common.services.GoogleServiceFactory;
+import com.severn.common.services.GoogleServiceFactory
+import com.severn.common.utils.BigQueryUtil;
 import com.severn.event.tracking.*;
 import com.severn.script.utils.*;
 import com.severn.segment.v2.*;
 
 import static org.codehaus.groovy.runtime.DefaultGroovyMethodsSupport.*;
 
-def c = 0, bucket = 'wild-ride-app-viber-temp', filesPrefix = 'raw_session_processed_3' , dataSet = 'TEST', table = 'raw_sessions_test'
+def c = 0, BUCKET = 'severn-stage-1-temp', FILES_PREFIX = 'raw_session_processed' , DATASET = 'TST', TABLE = 'raw_sessions_prod', BOUNDARY_TS = '2016-05-01 00:00:00 UTC'
 Logger localLogger = Logger.getLogger('com.severn')
 
-String SQL = "SELECT * FROM [${dataSet}.${table}] %s ORDER BY user_id, platform_id, session_ts"
+String SQL = "SELECT * FROM [${DATASET}.${TABLE}] %s ORDER BY user_id, platform_id, session_ts"
 
-def usersRaw = BigQueryScriptUtils.executeQuery("SELECT max(user_id) as max_uid, min(user_id) as min_uid FROM [${dataSet}.${table}] WHERE user_id is not null AND platform_id IS NOT NULL AND session_ts IS NOT NULL").next()
+def usersRaw = BigQueryUtil.executeQuery("SELECT max(user_id) as max_uid, min(user_id) as min_uid FROM [${DATASET}.${TABLE}] WHERE user_id is not null AND platform_id IS NOT NULL AND session_ts IS NOT NULL").next()
 //def zeros = '00000000000000'
 def zeros = '0000000000000' 
 def sTs = System.currentTimeMillis()
@@ -44,7 +45,7 @@ ExecutorService executorService = Executors.newFixedThreadPool(5, ThreadManager.
 
 List<Future<Long>> results = []
 (minUid..maxUid).each { aNumber ->
-    def f = executorService.submit( new Runner(Long.parseLong("${aNumber}${zeros}"), Long.parseLong("${aNumber + 1}${zeros}"), zeros, SQL, bucket, filesPrefix) )
+    def f = executorService.submit( new Runner(Long.parseLong("${aNumber}${zeros}"), Long.parseLong("${aNumber + 1}${zeros}"), zeros, SQL, BUCKET, FILES_PREFIX, BOUNDARY_TS) )
     results << f
 }
 for (Future<Long> f : results) {
@@ -60,14 +61,16 @@ class Runner implements Callable<Long> {
 
     long from, to
     def zeros, sql, bucket, filesPrefix
+    def boudaryTs
 
-    Runner(long from, long to, def z, def sql, def bucket, def fp) {
+    Runner(long from, long to, def z, def sql, def bucket, def fp, def bts) {
         this.from = from
         this.to = to
         this.zeros = z
         this.sql = sql
         this.bucket = bucket
         this.filesPrefix = fp
+        this.boudaryTs = bts
     }
 
     @Override
@@ -79,13 +82,13 @@ class Runner implements Callable<Long> {
             localLogger.log(Level.FINE, "Batch '${from}_${to}' was processed. Skip")
         } catch (EntityNotFoundException e) {
             String start = "${from}", end = "${to}"
-            String whereClause = "WHERE user_id >= ${start} AND user_id < ${end} AND user_id IS NOT NULL AND platform_id IS NOT NULL AND session_ts IS NOT NULL"
+            String whereClause = "WHERE user_id >= ${start} AND user_id < ${end} AND session_ts <= '${boudaryTs}' AND user_id IS NOT NULL AND platform_id IS NOT NULL AND session_ts IS NOT NULL"
             String sql = String.format(sql, whereClause)
 
             localLogger.log(Level.FINE, "Start processing ${sql}")
             long startBatchTs = System.currentTimeMillis(), rawsPerBatch = 0
 
-            Iterator res = BigQueryScriptUtils.executeQuery(sql)
+            Iterator res = BigQueryUtil.executeQuery(sql)
 
             Writer writer = Channels.newWriter(GcsUtils.getRetryGcsService().createOrReplace(new GcsFilename(bucket, "${filesPrefix}/users_from_${start}_to_${end}.csv"), gcsFileOptions), "UTF-8")
 
@@ -114,7 +117,9 @@ class Runner implements Callable<Long> {
                     raw << ( arr.length >= idx ? arr[idx-1] : null )
                 }
                 raw << data.createdTs
-
+                for (int idx = 37; idx < it.size(); idx++) {
+                    raw << (it[idx] && it[idx].toString().contains('java.lang.Object') ? null : it[idx])
+                }
                 def rawStr = EventUtils.buildDataString(raw as Object[])
                 writer.write(rawStr + '\n')
 
