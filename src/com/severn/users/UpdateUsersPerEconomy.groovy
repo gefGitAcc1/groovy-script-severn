@@ -19,7 +19,6 @@ import com.google.appengine.api.memcache.*
 import com.google.apphosting.api.ApiProxy
 
 import com.severn.common.domain.User;
-import com.severn.script.utils.BigQueryScriptUtils;
 import com.severn.script.utils.DatastoreSciptUtils;
 
 ApplicationContext ctx = binding.variables.get('applicationContext')
@@ -54,7 +53,10 @@ def shouldUpdate = {
     Integer level = entity.getProperty('level').intValue()
     Integer nextLevel = level + 1
     Double xp = entity.getProperty('experience')
-    boolean result = xp >= mapping[nextLevel] || xp < mapping[level]
+    if (!mapping[nextLevel]) {
+        logger.warning("User is out of economy ${entity}")
+    }
+    boolean result = (mapping[nextLevel]) && (xp >= mapping[nextLevel] || xp < mapping[level])
     result
 }
 
