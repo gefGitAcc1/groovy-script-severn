@@ -22,7 +22,7 @@ import com.google.appengine.api.datastore.*;
 import com.google.appengine.repackaged.org.joda.time.DateTime;
 import com.severn.common.bigquery.BigQueryServiceSupport;
 import com.severn.common.services.GoogleServiceFactory;
-import com.severn.script.utils.BigQueryScriptUtils;
+import com.severn.common.utils.BigQueryUtil;
 
 Logger logger = Logger.getLogger('com.severn')
 
@@ -30,7 +30,7 @@ DatastoreService ds = DatastoreServiceFactory.getDatastoreService()
 def dataSet = 'DWH', table = 'raw_sessions'
 def batchesCount = 100
 
-def usersRaw = BigQueryScriptUtils.executeQuery("SELECT max(user_id) as max_uid, min(user_id) as min_uid FROM [${dataSet}.${table}] WHERE user_id is not null AND platform_id IS NOT NULL AND session_ts IS NOT NULL").next()
+def usersRaw = BigQueryUtil.executeQuery("SELECT max(user_id) as max_uid, min(user_id) as min_uid FROM [${dataSet}.${table}] WHERE user_id is not null AND platform_id IS NOT NULL AND session_ts IS NOT NULL").next()
 long minUid = Long.parseLong(usersRaw[1]), maxUid = Long.parseLong(usersRaw[0]), diff = (maxUid - minUid) / batchesCount
 def batches = []
 (batchesCount + 1).times { i ->
@@ -98,7 +98,7 @@ class TaskRunner implements Callable<Long> {
         } catch (EntityNotFoundException enfe) {
             def sql = String.format(sqlPattern, "and user_id >= ${batch.from} and user_id <=${batch.to}".toString())
 
-            def raws = BigQueryScriptUtils.executeQuery(sql)
+            def raws = BigQueryUtil.executeQuery(sql)
 
             logger.log(Level.FINE, "${Thread.currentThread()} - Got results")
 

@@ -18,7 +18,7 @@ import com.google.appengine.api.memcache.MemcacheServiceFactory
 import com.google.apphosting.api.ApiProxy;
 import com.severn.common.bigquery.BigQueryServiceSupport;
 import com.severn.common.domain.User;
-import com.severn.script.utils.BigQueryScriptUtils;
+import com.severn.common.utils.BigQueryUtil;
 import com.severn.script.utils.DatastoreSciptUtils;
 
 ApplicationContext ctx = binding.variables.get('applicationContext')
