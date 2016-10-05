@@ -19,12 +19,12 @@ import org.springframework.http.MediaType
 import java.nio.channels.Channels
 import java.util.logging.*
 
-def projectId = 'wild-ride-app-viber', dataSet = 'TEST'
-def tableId = 'lost_n_found_raw_sessions'
-def bucket_fails = 'wild-ride-viber-app-events-fail-archive-1', bucket_success = 'wild-ride-app-viber-temp-restored-events', bucket_unsuccess = 'wild-ride-app-viber-temp-restore-events-failures'
-def prefix = 'raw_sessions' + '/'
-def schema = 'session_ts:timestamp,user_id:integer,session_id:string,session_end_ts:timestamp,game_id:integer,platform_id:string,network_id:string,social_network_user_id:string,device_identifier:string,tracker_id:string,campaign_id:string,affiliate_id:string,device_os:string,device_type:string,browser:string,ip:string,screen_resolution:string,ip_country:string,server_id:string,user_name:string,user_level:integer,user_xp:float,user_balance:float,total_number_of_friends:integer,number_of_app_friends:integer,email:string,birth_date:timestamp,ab_test_names:string,ab_test_groups:string,app_version:string'
-def counter = 0, max = 1000 //Integer.MAX_VALUE
+def projectId = 'severn-stage-1', dataSet = 'Restored'
+def tableId = 'raw_sessions_prod_till_2016_05_01_00_00_00_inclusive'
+def bucket_fails = 'severn-stage-1-temp', bucket_success = 'severn-stage-1-temp-restored', bucket_unsuccess = 'severn-stage-1-temp-restore-failed'
+def prefix = 'raw_session_processed' + '/'
+def schema = 'session_ts:timestamp,user_id:integer,session_id:string,session_end_ts:timestamp,game_id:integer,platform_id:string,network_id:string,social_network_user_id:string,device_identifier:string,tracker_id:string,campaign_id:string,affiliate_id:string,device_os:string,device_type:string,browser:string,ip:string,screen_resolution:string,ip_country:string,server_id:string,user_name:string,user_level:integer,user_xp:float,user_balance:float,total_number_of_friends:integer,number_of_app_friends:integer,email:string,birth_date:timestamp,ab_test_names:string,ab_test_groups:string,app_version:string,seniority1:integer,seniority2:integer,seniority3:integer,seniority4:integer,seniority5:integer,seniority6:integer,first_installation_ts:timestamp,ad_provider_unique_device_id:string,user_tier:integer'
+def counter = 0
 
 GcsService service = GcsServiceFactory.createGcsService();
 ListOptions options = new ListOptions.Builder().setPrefix(prefix).setRecursive(true).build();
@@ -33,9 +33,9 @@ ListResult files = service.list(bucket_fails, options);
 def ctx = binding.variables.get("applicationContext")
 BigQueryServiceSupport bigQueryClient = ctx.getBean('bigQueryServiceSupport')
 
-for (int idx = 0; idx < max; idx++) {
+files.each {
     counter++
-    ListItem li = files.next()
+    ListItem li = it
     def result = loadFile(li, bigQueryClient, schema, projectId, tableId, dataSet, bucket_fails)
     if (result) {
         logger.log(Level.FINE, "Success ${li}")
@@ -47,7 +47,7 @@ for (int idx = 0; idx < max; idx++) {
 }
 
 def result = 'OK : Processed ' + counter
-notifyEnded('sergey.shcherbovich@synesis.ru', 'wild-ride-app-viber@appspot.gserviceaccount.com', result)
+notifyEnded('sergey.shcherbovich@synesis.ru', 'severn-stage-1@appspot.gserviceaccount.com', result)
 result
 
 void notifyEnded(def reciever, def sender, def message) {
