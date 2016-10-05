@@ -3,7 +3,8 @@ import java.util.BitSet;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.Future
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.*;
 
 import org.apache.commons.lang3.time.DurationFormatUtils;
@@ -28,20 +29,20 @@ import com.severn.segment.v2.*;
 
 import static org.codehaus.groovy.runtime.DefaultGroovyMethodsSupport.*;
 
-def c = 0, BUCKET = 'severn-stage-1-temp', FILES_PREFIX = 'raw_session_processed' , DATASET = 'TST', TABLE = 'raw_sessions_prod', BOUNDARY_TS = '2016-05-01 00:00:00 UTC'
+AtomicLong c = new AtomicLong(0)
+def BUCKET = 'severn-stage-1-temp', FILES_PREFIX = 'raw_session_processed' , DATASET = 'TST', TABLE = 'raw_sessions_prod', BOUNDARY_TS = '2016-05-01 00:00:00 UTC'
 Logger localLogger = Logger.getLogger('com.severn')
 
 String SQL = "SELECT * FROM [${DATASET}.${TABLE}] %s ORDER BY user_id, platform_id, session_ts"
 
 def usersRaw = BigQueryUtil.executeQuery("SELECT max(user_id) as max_uid, min(user_id) as min_uid FROM [${DATASET}.${TABLE}] WHERE user_id is not null AND platform_id IS NOT NULL AND session_ts IS NOT NULL").next()
-//def zeros = '00000000000000'
-def zeros = '0000000000000' 
-def sTs = System.currentTimeMillis()
+def zeros = '00000000000000'
+def sTs = System.currentTimeMillis(), tasksCount = 0
 long minUid = Long.valueOf(usersRaw[1]) / Long.valueOf("1${zeros}"), maxUid = Long.valueOf(usersRaw[0]) / Long.valueOf("1${zeros}")
 
 localLogger.log(Level.FINE, "User Ids prefixes from ${minUid} to ${maxUid}")
 
-ExecutorService executorService = Executors.newFixedThreadPool(5, ThreadManager.backgroundThreadFactory());
+ExecutorService executorService = Executors.newFixedThreadPool(3, ThreadManager.currentRequestThreadFactory());
 
 List<Future<Long>> results = []
 (minUid..maxUid).each { aNumber ->
@@ -49,11 +50,12 @@ List<Future<Long>> results = []
     results << f
 }
 for (Future<Long> f : results) {
-    c += f.get()
+    c.addAndGet(f.get().longValue())
+    tasksCount++
 }
 executorService.shutdown()
 
-"Ok. $c. Took ${DurationFormatUtils.formatDuration(System.currentTimeMillis()-sTs, 'HH:mm:ss.S')}".toString()
+"Ok. $c. Tasks count ${tasksCount}. Took ${DurationFormatUtils.formatDuration(System.currentTimeMillis()-sTs, 'HH:mm:ss.S')}".toString()
 
 class Runner implements Callable<Long> {
     Logger localLogger = Logger.getLogger('com.severn')
@@ -88,7 +90,7 @@ class Runner implements Callable<Long> {
             localLogger.log(Level.FINE, "Start processing ${sql}")
             long startBatchTs = System.currentTimeMillis(), rawsPerBatch = 0
 
-            Iterator res = BigQueryUtil.executeQuery(sql)
+            Iterator res = new BigQueryUtil(sql).setForceRequeryJobResult(true).execute()
 
             Writer writer = Channels.newWriter(GcsUtils.getRetryGcsService().createOrReplace(new GcsFilename(bucket, "${filesPrefix}/users_from_${start}_to_${end}.csv"), gcsFileOptions), "UTF-8")
 
@@ -128,12 +130,14 @@ class Runner implements Callable<Long> {
 
                 c++
             }
+            closeQuietly(writer)
+
             def entity = new Entity(k)
             entity.setProperty('timestamp', System.currentTimeMillis())
             entity.setUnindexedProperty('created', DateTime.now().toString())
+            entity.setUnindexedProperty('count', c)
             GoogleServiceFactory.getDatastoreService().put(entity)
 
-            closeQuietly(writer)
             localLogger.log(Level.FINE, "Done with '${from}_${to}'. Processed ${rawsPerBatch} raws. Took ${DurationFormatUtils.formatDuration(System.currentTimeMillis()-startBatchTs, 'HH:mm:ss.S')}")
         }
         return c
