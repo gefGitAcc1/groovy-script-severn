@@ -96,15 +96,12 @@ def updateEntity = {
     Double contributionBalance = entity.getProperty('contributionBalance')
     Double newContributionBalance = (newLevel > level) ? (contributionBalance + (10 * (newLevel - level))) : contributionBalance
 
-    for (int i = level + 1; i <= newLevel; i++) {
-        double balanceBonus = levelUpMapping[i]
-        if (balanceBonus) {
-            balance += balanceBonus
-        } 
+    def balanceBonus = [level+1..newLevel].collect { levelUpMapping[it] }.sum {
+        it ? it : 0
     }
 
     entity.setUnindexedProperty('contributionBalance', newContributionBalance)
-    entity.setUnindexedProperty("balance", balance)
+    entity.setUnindexedProperty("balance", balance + balanceBonus)
     entity.setProperty('level', newLevel)
     entity
 }
