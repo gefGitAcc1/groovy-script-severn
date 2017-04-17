@@ -4,7 +4,7 @@ import org.joda.time.DateTimeZone;
 import org.joda.time.LocalDateTime;
 import org.springframework.context.*
 
-import com.severn.gifts.dao.BaseGiftDAO
+import com.severn.gifts.dao.impl.*
 import com.severn.gifts.domain.Gift
 import com.severn.gifts.domain.ListGiftsParams;
 import com.severn.script.utils.GcsUtils;
