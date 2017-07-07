@@ -30,9 +30,10 @@ def entities = []
 def dsUtil = new DatastoreUtil('ContestBooster')
 
 dsUtil.shouldUpdate = { Entity entity ->
-    def cnt = entity.getProperty('count')
+    int cnt = entity.getProperty('count')
     if (cnt && (cnt > 1)) {
         entities << entity
+//        logger.fine("Found entity : ${entity}");
     }
     false
 }
@@ -48,20 +49,35 @@ def ents = ds.get(newKeys).values()
 def olds = entities.collectEntries { Entity it -> [(it.key.id) : it] }
 
 ents.each { Entity it ->
-    logger.fine("Old Entity : ${it}")
+//    logger.fine("Old Entity : ${it}")
     Entity oldEnt = olds[it.key.id]
     def cntOld = oldEnt.getProperty('count')
     def cntNew = it.getProperty('count')
     it.setUnindexedProperty('count', cntOld + cntNew)
-    logger.fine("New Entity : ${it}")
+    
+    olds.remove(it.key.id)
+    
+//    logger.fine("New Entity : ${it}")
+}
+
+def news = olds.values().collect { Entity old ->
+    Entity newOne = new Entity(KeyFactory.createKey('ContestBoosterState', old.key.id))
+    newOne.setPropertiesFrom(old)
+    logger.fine("Totally new ${newOne}");
+    newOne
 }
 
 def mcKeys = ents.collect { Entity it -> "ContestBooster_${it.key.id}".toString() }
+def mcKeysNew = news.collect { Entity it -> "ContestBooster_${it.key.id}".toString() }
 
-ds.put(ents)
-mc.deleteAll(mcKeys)
+//logger.fine("New Entities ${news}");
 
-def result = 'Ok ' + entities.size()
+//ds.put(ents)
+ds.put(news)
+//mc.deleteAll(mcKeys)
+mc.deleteAll(mcKeysNew)
+
+def result = 'Ok ' + olds.size()
 //notifyEnded('sergey.shcherbovich@synesis.ru', result)
 result
 
