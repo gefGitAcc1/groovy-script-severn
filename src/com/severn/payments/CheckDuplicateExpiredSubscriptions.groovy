@@ -40,19 +40,15 @@ def entitiesToDelete = []
 def badsCnt = 0
 
 i.each { Entity e ->
-    String json = ((Text)e.getProperty('subscription'))?.value
-    SubscriptionInfo si = g.fromJson(json, SubscriptionInfo.class)
-    String id = si.getRecieptId()
-    if (mapping.containsKey(id)) {
+    Object userId = e.getProperty('userId')
+    if (!userId) {
         badsCnt++
         entitiesToDelete << e.key
-    } else {
-        mapping.put(si.getRecieptId(), si)
     }
 }
 ds.delete(entitiesToDelete)
 
-def result = 'Ok duplicates ' + badsCnt + ', oks ' + mapping.size()
+def result = 'Ok deleted ' + badsCnt
 // notifyEnded('sergey.shcherbovich@synesis.ru', bigQueryClient.getServiceAccountId(), result)
 result
 
