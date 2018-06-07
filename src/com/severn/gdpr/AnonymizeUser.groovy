@@ -11,12 +11,14 @@ import org.apache.commons.codec.binary.StringUtils
 import org.joda.time.LocalDateTime
 import org.springframework.context.ApplicationContext
 
+import com.google.appengine.api.NamespaceManager
 import com.google.appengine.api.datastore.DatastoreService
 import com.google.appengine.api.datastore.DatastoreServiceFactory
 import com.google.appengine.api.datastore.Entity
 import com.google.appengine.api.datastore.EntityNotFoundException
 import com.google.appengine.api.datastore.Key
 import com.google.appengine.api.datastore.KeyFactory
+
 import com.severn.common.dao.AuthorizationDAO
 import com.severn.common.dao.UserDAO
 import com.severn.common.domain.DeviceAuthorizationInfo
@@ -28,63 +30,77 @@ UserDAO userDAO = ctx.getBean('userDAO')
 AuthorizationDAO authorizationDAO = ctx.getBean('authorizationDAO')
 
 Logger logger = Logger.getLogger('com.severn')
-def userId = 1111111111111111L
+def userId = 6717908650557440L
 
 User user = userDAO.getUser(userId)
 
 def result
 if (user) {
-    String guid = "gdpr-${UUID.randomUUID()}"
-    
+    String guid = "gdpr-${UUID.randomUUID()}-${UUID.randomUUID()}"
+
     DatastoreService ds = DatastoreServiceFactory.getDatastoreService()
     Key key = KeyFactory.createKey('UserForgotten', userId)
-    
+
     try {
         ds.get(key)
         throw new RuntimeException('User is forgotten')
-    } catch (EntityNotFoundException e) {
-    }
-    
+    } catch (EntityNotFoundException e) { }
+
+    // backups
+    baldurEntity(ds, 'User', userId)
+    baldurEntity(ds, 'UserSocialInfo', userId)
+    // backups end
+
     Entity e = new Entity(key)
     e.setProperty('ts', LocalDateTime.now().toString())
-    e.setProperty('socialId', user.socialId)
     e.setProperty('guid', guid)
-    
+
     if (user.socialId) {
-        user.socialId = "gdpr-${user.socialId}-${UUID.randomUUID()}"
+        user.socialId = guid
         user.forceNotSocial = true
     }
-    
-    logger.log(Level.INFO, "User ${user}")
-    
+
     List<UserAuthentication> auths = authorizationDAO.getUserAuthenticationsByUserIds([userId] as List)
-    List<UserAuthentication> toSave = auths.collect{ UserAuthentication it ->
-        def encDevId = it.deviceId ? Ciph.encrypt(guid, it.deviceId) : it.deviceId
-        logger.log(Level.FINE, "${it.deviceId} -> ${encDevId}")
-        it.deviceId = encDevId
-        
-        def encAuthorizationKey = Ciph.encrypt(guid, it.authorizationKey)
-        logger.log(Level.FINE, "${it.authorizationKey} -> ${encAuthorizationKey}")
-        it.authorizationKey = encAuthorizationKey
-        
-        logger.log(Level.INFO, "UserAuthentication ${it}")
-        
-        it
-    }
-    
+
+    logger.log(Level.INFO, "User ${user}")
     logger.log(Level.INFO, "Entity ${e}")
-    toSave.each { UserAuthentication it ->
-//        authorizationDAO.saveUserAuthentication(it)
-//        authorizationDAO.saveDeviceAuthorizationInfo(it, new DeviceAuthorizationInfo())
+
+    auths.each { UserAuthentication it ->
+        baldurEntity(ds, 'UserInstallation', it.authId)
+        baldurEntity(ds, 'UserAuthentication', it.authId)
+
+        it.deviceId = guid
+        it.authorizationKey = guid
+
+        authorizationDAO.saveUserAuthentication(it)
+        authorizationDAO.saveDeviceAuthorizationInfo(it, new DeviceAuthorizationInfo())
     }
-//    ds.put(e)
-//    userDAO.saveUser(user)
+    ds.put(e)
+    userDAO.saveUser(user)
+    baldurEntity(ds, 'UserForgotten', userId)
     result = "OK ${guid}".toString()
 } else {
     throw new RuntimeException('User not found')
 }
 
 result
+
+void baldurEntity(DatastoreService ds, String kind, long id) {
+    String oldNamespace = NamespaceManager.get()
+    try {
+        Entity existingEntity = ds.get(KeyFactory.createKey(kind, id))
+        NamespaceManager.set('Baldur')
+        Entity newEntity = new Entity(KeyFactory.createKey(kind, id))
+        existingEntity.getProperties().entrySet().each { entry ->
+            newEntity.setProperty(entry.key, entry.value)
+        }
+        DatastoreServiceFactory.getDatastoreService().put(newEntity)
+    } catch (EntityNotFoundException enfe) {
+        logger.log(Level.WARNING, "Exception on gettig ${kind}:${id}", enfe)
+    } finally {
+        NamespaceManager.set(oldNamespace)
+    }
+}
 
 class Ciph {
     private static final String ALGORITHM = "AES/CBC/PKCS5Padding";
