@@ -1,3 +1,5 @@
+package com.severn.gdpr
+
 import java.util.Arrays
 import java.util.logging.Level
 import java.util.logging.Logger
@@ -18,7 +20,8 @@ import com.google.appengine.api.datastore.Entity
 import com.google.appengine.api.datastore.EntityNotFoundException
 import com.google.appengine.api.datastore.Key
 import com.google.appengine.api.datastore.KeyFactory
-
+import com.google.appengine.api.memcache.MemcacheServiceFactory
+import com.severn.auth.config.AuthConfigDAO
 import com.severn.common.dao.AuthorizationDAO
 import com.severn.common.dao.UserDAO
 import com.severn.common.domain.DeviceAuthorizationInfo
@@ -58,6 +61,7 @@ if (user) {
     if (user.socialId) {
         user.socialId = guid
         user.forceNotSocial = true
+        user.name = ctx.getBeansOfType(AuthConfigDAO.class).entrySet().iterator().next().value.generateName()
     }
 
     List<UserAuthentication> auths = authorizationDAO.getUserAuthenticationsByUserIds([userId] as List)
@@ -78,12 +82,31 @@ if (user) {
     ds.put(e)
     userDAO.saveUser(user)
     baldurEntity(ds, 'UserForgotten', userId)
+    
+    MemcacheServiceFactory.getMemcacheService().delete('level_TOP_PLAYERS_MC_KEY')
+    MemcacheServiceFactory.getMemcacheService('default').delete('level_TOP_PLAYERS_MC_KEY')
+    
     result = "OK ${guid}".toString()
 } else {
     throw new RuntimeException('User not found')
 }
 
 result
+
+class Bean<T> {
+    Class<T> clazz
+    def binding
+    
+    Bean(Class<T> clazz, def binding) {
+        this.clazz = clazz
+        this.binding = binding
+    }
+    
+    T getBean() {
+        ApplicationContext ac = binding.variables.get('applicationContext')
+        ac.getBeansOfType(clazz).entrySet().iterator().next().value
+    }
+}
 
 void baldurEntity(DatastoreService ds, String kind, long id) {
     String oldNamespace = NamespaceManager.get()
