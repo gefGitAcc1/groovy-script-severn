@@ -1,5 +1,6 @@
 package com.severn.gdpr
 
+import java.util.ArrayList
 import java.util.List
 import java.util.logging.Level
 
@@ -11,36 +12,38 @@ import com.google.api.services.bigquery.model.QueryRequest
 import com.google.api.services.bigquery.model.QueryResponse
 import com.google.api.services.bigquery.model.TableList
 import com.severn.common.bigquery.BigQueryFactory
+import com.severn.common.bigquery.BigQueryServiceSupportUtils
 import com.severn.common.dao.UserDAO
 import com.severn.common.spring.AppContextProvider
 
-def userIds = [5181483673190400]
-def socialIds = [1695372064109441].collect { it -> "'${it}'" }
+def userIds = [5628978463244288]
+def socialIds = [104627223385190].collect { it -> "'${it}'" }
+def afIds = ['1530024936292000-6091529'].collect { it -> "'${it}'" }
 
 def placeHolder = 'GDPR-HIDDEN-V1'
+def projectId = 'severn-stage-3', datasetId = 'DWH'
 
 def sqlp = [
-    byUserIds: " WHERE user_id IN (${StringUtils.join(userIds, ',')})",
-    bySocialIds: " WHERE social_network_user_id IN (${StringUtils.join(socialIds, ',')}) ",
-    bySenderSocialIds: " WHERE sender_social_id IN (${StringUtils.join(socialIds, ',')}) ",
+    byUserIds: " user_id IN (${StringUtils.join(userIds, ',')}) ",
+    bySocialIds: " social_network_user_id IN (${StringUtils.join(socialIds, ',')}) ",
+    bySenderSocialIds: " sender_social_id IN (${StringUtils.join(socialIds, ',')}) ",
+    byAfId: " appsflyer_device_id IN (${StringUtils.join(afIds, ',')}) ",
 ]
 
-["ip", "social_network_user_id", "platform_id", "device_identifier", "device_os", "device_type", "browser", "screen_resolution", "appsflyer_device_id", "unique_device_id", "social_id", "user_name", "email", "gender", "ip_country", "platform", "advertiser_id", "sender_social_id"]
+["ip", "social_network_user_id", "platform_id", "device_identifier", "device_os", "device_type", "browser", "screen_resolution", "appsflyer_device_id", "unique_device_id", "social_id", "user_name", "email", "gender", "ip_country", "platform", "advertiser_id", "sender_social_id", "advertising_id", "android_id", "imei", "idfa", "idfv", "mac"]
 .each { String strName ->
     sqlp[strName] = " ${strName} = '${placeHolder}' "
 }
-["total_number_of_friends", "number_of_app_friends", "birth_date"].each { strName ->
+["total_number_of_friends", "number_of_app_friends", "birth_date"].each { String strName ->
     sqlp[strName] = " ${strName} = NULL "
 }
-
-println sqlp
-println sqlp.ip
 
 def tableNamePlaceholder = '::table::'
 
 //[table: '', fields: [], by:"$sqlp.byUserIds"],
 
 def queries = [
+//    [table: 'appsflyer_installations', fields: ["ip", "advertising_id", "android_id", "imei", "idfa", "idfv", "mac"], by:"$sqlp.byAfId"],
     [table: 'bonuses', fields: ["ip", "social_network_user_id", "platform_id"], by:"$sqlp.byUserIds"],
     [table: 'client_events', fields: ["platform_id", "social_network_user_id", "device_identifier", "device_os", "device_type", "browser", "screen_resolution", "appsflyer_device_id", "unique_device_id"], by: "$sqlp.byUserIds"],
     [table: 'contest_leaderboard', fields: ["social_id", "user_name"], by:"$sqlp.byUserIds"],
@@ -62,13 +65,13 @@ def queries = [
     [table: 'survey', fields: ["platform_id"], by:"$sqlp.byUserIds"],
     [table: 'spins', fields: ["platform_id", "social_network_user_id", "device_type", "browser", "ip"], by:"$sqlp.byUserIds"],
 ].collect { it ->
-    it.fields.removeAll(['platform', 'platform_id'])
+    it.fields.removeAll(['platform', 'platform_id', "screen_resolution", "gender", "ip_country", "birth_date"])
     it
 }.findAll { it ->
-    it.fields.size() > 0
-}
-
-.collect { it ->
+    def filt = (it.fields.size() > 0)
+    logger.log(Level.FINE, "Processing info for ${it.table} = ${filt}")
+    filt
+}.collect { it ->
     def fs = it.fields.collect { field ->
         if (sqlp[field]) { 
             sqlp[field]
@@ -76,20 +79,39 @@ def queries = [
             throw new RuntimeException("Can't find mapping for ${field}")
         } 
     }
-    it.query = "update ${tableNamePlaceholder} set ${StringUtils.join(fs, ' , ')} ${it.by}"  
+    it.query = "UPDATE ${tableNamePlaceholder} SET ${StringUtils.join(fs, ' , ')} WHERE ${it.by}"  
     it 
 }
 
 Bigquery bigquery = bean(BigQueryFactory.class).getBigQuery()
-def projectId = 'severn-stage-3', datasetId = 'DWH'
 
-List<TableList.Tables> tables = bigquery
-    .tables()
-    .list(projectId, datasetId)
-    .setMaxResults(100_000)
-        .execute().getTables();
+def tables = []
 
-def mapping = tables.collect { TableList.Tables tbls -> tbls.id.split(":${datasetId}.")[1] } groupBy { String tblId -> tblId.split('[0-9]')[0] }
+String nextToken = null;
+com.google.api.services.bigquery.Bigquery.Tables.List listRequest = bigquery.tables().list(projectId, datasetId);
+while (true) {
+    if (nextToken != null) {
+        listRequest.setPageToken(nextToken);
+    }
+    listRequest.setMaxResults(1000L);
+    TableList listResult = listRequest.execute();
+    for (TableList.Tables t : listResult.getTables()) {
+        String tableName = t.getTableReference().getTableId();
+        tables << tableName
+    }
+
+    if (listResult.getNextPageToken() == null) {
+        break;
+    } else {
+        nextToken = listResult.getNextPageToken();
+    }
+}
+
+logger.log(Level.FINE, "Tables ${tables.size()}")
+
+def mapping = tables.collect { it /*TableList.Tables tbls -> tbls.id.split(":${datasetId}.")[1]*/ } groupBy { String tblId -> tblId.split('[0-9]')[0] }
+
+logger.log(Level.FINE, "Mapping ${mapping}")
 
 def count = 0
 def errors = 0
@@ -98,11 +120,11 @@ queries.each { def queryDef ->
     def qry  = queryDef.query
     if (tbls) {
         tbls.each { String tableName ->
-            String query = qry.replace('::table::', "${datasetId}.${tableName}")
+            String query = qry.replace("${tableNamePlaceholder}", "${datasetId}.${tableName}")
             println query
             def res = execute(projectId, query)
             count += res.rows
-            errors + res.errors
+            errors += res.errors
         }
     }
 }
@@ -119,7 +141,7 @@ def execute(def projectId, def query) {
         response = bigquery.jobs().query(projectId, queryRequest).execute();
     } catch (Exception e) {
         logger.log(Level.SEVERE, "Exception on query ${query}", e)
-        throw new RuntimeException("Exception on query ${query}", e)
+//        throw new RuntimeException("Exception on query ${query}", e)
     }
 
     if (response.getErrors()) {
@@ -128,7 +150,11 @@ def execute(def projectId, def query) {
         errors++
     } else {
         logger.log(Level.INFO, "OK : ${response.getNumDmlAffectedRows()}")
-        result += response.getNumDmlAffectedRows()
+        if (null == response.getNumDmlAffectedRows()) {
+            logger.log(Level.FINE, "OK : ${response}")
+        } else {
+            result += response.getNumDmlAffectedRows()
+        }
     }
     [rows: result, errors: errors]
 }
