@@ -1,5 +1,7 @@
 package com.severn.gdpr
 
+import java.text.DateFormat
+import java.text.SimpleDateFormat
 import java.util.ArrayList
 import java.util.List
 import java.util.logging.Level
@@ -16,21 +18,32 @@ import com.severn.common.bigquery.BigQueryServiceSupportUtils
 import com.severn.common.dao.UserDAO
 import com.severn.common.spring.AppContextProvider
 
-def userIds = [5628978463244288]
-def socialIds = [104627223385190].collect { it -> "'${it}'" }
-def afIds = ['1530024936292000-6091529'].collect { it -> "'${it}'" }
+def userIds = [6440846836629504] //[5964688877682688, 5628978463244288, 5457462165504000]
+def socialIds = userIds.collect { id -> bean(UserDAO.class).getUser(id)?.socialId }.findAll { socId -> socId }.collect { it -> "'${it}'" }
+//socialIds << [130713757786657].collect { it -> "'${it}'" }
 
-def placeHolder = 'GDPR-HIDDEN-V1'
+logger.log(Level.FINE, "UserIds : ${userIds}")
+logger.log(Level.FINE, "SocialIds : ${socialIds}")
+
+def afIds = ['1530191530391-6420915'].collect { it -> "'${it}'" }
+
+def placeHolder = 'GDPR-HIDDEN-V2'
 def projectId = 'severn-stage-3', datasetId = 'DWH'
 
 def sqlp = [
     byUserIds: " user_id IN (${StringUtils.join(userIds, ',')}) ",
     bySocialIds: " social_network_user_id IN (${StringUtils.join(socialIds, ',')}) ",
+    bySocialIds2: " social_id IN (${StringUtils.join(socialIds, ',')}) ",
+    byReceiverIds: " receiver_social_id IN (${StringUtils.join(socialIds, ',')}) ",
     bySenderSocialIds: " sender_social_id IN (${StringUtils.join(socialIds, ',')}) ",
+    byInvitedSocialIds: " invited_social_id IN (${StringUtils.join(socialIds, ',')}) ",
     byAfId: " appsflyer_device_id IN (${StringUtils.join(afIds, ',')}) ",
 ]
 
-["ip", "social_network_user_id", "platform_id", "device_identifier", "device_os", "device_type", "browser", "screen_resolution", "appsflyer_device_id", "unique_device_id", "social_id", "user_name", "email", "gender", "ip_country", "platform", "advertiser_id", "sender_social_id", "advertising_id", "android_id", "imei", "idfa", "idfv", "mac"]
+["ip", "social_network_user_id", "invited_social_id", "platform_id", "device_identifier", "device_os", "device_type", "browser", "screen_resolution", 
+    "appsflyer_device_id", "unique_device_id", "social_id", "user_name", "email", "gender", "ip_country", "platform", "advertiser_id", "sender_social_id", 
+    "advertising_id", "android_id", "imei", "idfa", "idfv", "mac", 'device_type', 'os_version', 'device_name', 'device_brand', 'device_model', 
+    'receiver_social_id']
 .each { String strName ->
     sqlp[strName] = " ${strName} = '${placeHolder}' "
 }
@@ -43,11 +56,14 @@ def tableNamePlaceholder = '::table::'
 //[table: '', fields: [], by:"$sqlp.byUserIds"],
 
 def queries = [
-//    [table: 'appsflyer_installations', fields: ["ip", "advertising_id", "android_id", "imei", "idfa", "idfv", "mac"], by:"$sqlp.byAfId"],
+    [table: 'appsflyer_installations', fields: ["ip", "advertising_id", "android_id", "imei", "idfa", "idfv", "mac", 'device_type', 'os_version', 'device_name', 'device_brand', 'device_model'], by:"$sqlp.byAfId"],
+    [table: 'invitations', fields: ["social_id"], by:"$sqlp.bySocialIds2"],
+    [table: 'invitations', fields: ["invited_social_id"], by:"$sqlp.byInvitedSocialIds"],
     [table: 'bonuses', fields: ["ip", "social_network_user_id", "platform_id"], by:"$sqlp.byUserIds"],
     [table: 'client_events', fields: ["platform_id", "social_network_user_id", "device_identifier", "device_os", "device_type", "browser", "screen_resolution", "appsflyer_device_id", "unique_device_id"], by: "$sqlp.byUserIds"],
     [table: 'contest_leaderboard', fields: ["social_id", "user_name"], by:"$sqlp.byUserIds"],
     [table: 'gifts', fields: ["ip", "platform_id", "sender_social_id"], by:"$sqlp.bySenderSocialIds"],
+    [table: 'gifts', fields: ["ip", "platform_id", "receiver_social_id"], by:"$sqlp.byReceiverIds"],
     [table: 'jackpot_users', fields: ["social_id", "user_name", "platform_id"], by:"$sqlp.byUserIds"],
     [table: 'jackpot_winner_select', fields: ["social_id", "user_name"], by:"$sqlp.byUserIds"],
     [table: 'jackpot_winners', fields: ["social_id", "user_name", "platform_id"], by:"$sqlp.byUserIds"],
@@ -65,7 +81,10 @@ def queries = [
     [table: 'survey', fields: ["platform_id"], by:"$sqlp.byUserIds"],
     [table: 'spins', fields: ["platform_id", "social_network_user_id", "device_type", "browser", "ip"], by:"$sqlp.byUserIds"],
 ].collect { it ->
-    it.fields.removeAll(['platform', 'platform_id', "screen_resolution", "gender", "ip_country", "birth_date"])
+    it.fields.removeAll(['platform', 'platform_id', "screen_resolution", "gender", "ip_country", "birth_date", "appsflyer_device_id"])
+    // TODO retain only FB data
+    it.fields.retainAll(['social_id','social_network_user_id','sender_social_id','user_name','email','invited_social_id',
+        "total_number_of_friends", "number_of_app_friends", "birth_date", 'receiver_social_id', 'gender'])
     it
 }.findAll { it ->
     def filt = (it.fields.size() > 0)
@@ -108,8 +127,11 @@ while (true) {
 }
 
 logger.log(Level.FINE, "Tables ${tables.size()}")
+logger.log(Level.FINE, "${new SimpleDateFormat('YYYYMMdd').format(new Date())}")
 
-def mapping = tables.collect { it /*TableList.Tables tbls -> tbls.id.split(":${datasetId}.")[1]*/ } groupBy { String tblId -> tblId.split('[0-9]')[0] }
+def mapping = tables.findAll { String it -> 
+    !(it.startsWith('appsflyer_installations') && it.endsWith(new SimpleDateFormat('YYYYMMdd').format(new Date()))) 
+} groupBy { String tblId -> tblId.split('[0-9]')[0] }
 
 logger.log(Level.FINE, "Mapping ${mapping}")
 
