@@ -97,14 +97,14 @@ def shouldUpdate = { Entity entity ->
     }
     Integer level = entity.getProperty('level')?.intValue()
     if (level >= 9400) {
-        logger.log(Level.FINE, "Checking : ${entity}")
+//        logger.log(Level.FINE, "Checking : ${entity}")
         betsCount++
         double balance = entity.getProperty('balance')?.doubleValue()
         double betBefore = maxBetsBefore.get(level)
         double betAfter  = maxBetsAfter.get(level)
         double newBalance = balance / betBefore * betAfter
         bets << "Id ${entity.key.id} (Lvl ${entity.getProperty('level')}) Balance : ${balance} (bet ${betBefore}) -> ${newBalance} (bet ${betAfter})" 
-        result = true
+//        result = true
     }
     // result
     false

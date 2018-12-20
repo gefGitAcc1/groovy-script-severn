@@ -13,6 +13,8 @@ import com.severn.game.slots.domain.StoredFreeSpinsInfo
 Gson gson = new Gson()
 int count = 0
 
+'6036796737585152_5043271771357184_75'
+
 def shouldUpdate = { Entity it ->
     String[] parts = it.key.name.split('_')
     Object obj = it.getProperty('Freespins')

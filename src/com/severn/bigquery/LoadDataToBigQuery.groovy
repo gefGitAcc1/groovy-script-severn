@@ -11,7 +11,6 @@ import com.google.api.services.bigquery.model.*
 import org.joda.time.*
 import org.joda.time.format.*
 
-import com.google.appengine.api.log.LogService.LogLevel
 import com.severn.common.bigquery.BigQueryServiceSupport;
 
 import org.springframework.http.MediaType
@@ -19,35 +18,22 @@ import org.springframework.http.MediaType
 import java.nio.channels.Channels
 import java.util.logging.*
 
-def projectId = 'severn-stage-1', dataSet = 'Restored'
-def tableId = 'raw_sessions_prod_till_2016_05_01_00_00_00_inclusive'
-def bucket_fails = 'severn-stage-1-temp', bucket_success = 'severn-stage-1-temp-restored', bucket_unsuccess = 'severn-stage-1-temp-restore-failed'
-def prefix = 'raw_session_processed' + '/'
-def schema = 'session_ts:timestamp,user_id:integer,session_id:string,session_end_ts:timestamp,game_id:integer,platform_id:string,network_id:string,social_network_user_id:string,device_identifier:string,tracker_id:string,campaign_id:string,affiliate_id:string,device_os:string,device_type:string,browser:string,ip:string,screen_resolution:string,ip_country:string,server_id:string,user_name:string,user_level:integer,user_xp:float,user_balance:float,total_number_of_friends:integer,number_of_app_friends:integer,email:string,birth_date:timestamp,ab_test_names:string,ab_test_groups:string,app_version:string,seniority1:integer,seniority2:integer,seniority3:integer,seniority4:integer,seniority5:integer,seniority6:integer,first_installation_ts:timestamp,ad_provider_unique_device_id:string,user_tier:integer'
+def projectId = 'gambino-apps', dataSet = 'TST'
+def tableId = 'lost_contest_winners_2017_07_11'
+def schema = 'event_ts:timestamp,contest_id:integer,user_id:integer,rank:integer,total_win:integer,collection_ts:timestamp,levelgroup_id:integer,levelgroup_minlevel:integer,levelgroup_maxlevel:integer,user_tier:integer,session_id:string,total_win_usd:float,user_level:integer,calc_strategy:string,team:integer'
+def file = [name:'events_spins_from_2017-07-11 00:00:00_to_2017-07-11 17:37:58_1499852735196.log']
 def counter = 0
 
-GcsService service = GcsServiceFactory.createGcsService();
-ListOptions options = new ListOptions.Builder().setPrefix(prefix).setRecursive(true).build();
-ListResult files = service.list(bucket_fails, options);
+def aBucket = 'gambino-slots-events-temp'
+
 // ctx
 def ctx = binding.variables.get("applicationContext")
 BigQueryServiceSupport bigQueryClient = ctx.getBean('bigQueryServiceSupport')
 
-files.each {
-    counter++
-    ListItem li = it
-    def result = loadFile(li, bigQueryClient, schema, projectId, tableId, dataSet, bucket_fails)
-    if (result) {
-        logger.log(Level.FINE, "Success ${li}")
-        moveFile(new GcsFilename(bucket_fails, li.name), new GcsFilename(bucket_success, li.name), service);
-    } else {
-        logger.log(Level.WARNING, "Failed ${li}")
-        moveFile(new GcsFilename(bucket_fails, li.name), new GcsFilename(bucket_unsuccess, li.name), service)
-    }
-}
+def isOk = loadFile(file, bigQueryClient, schema, projectId, tableId, dataSet, aBucket)
 
-def result = 'OK : Processed ' + counter
-notifyEnded('sergey.shcherbovich@synesis.ru', 'severn-stage-1@appspot.gserviceaccount.com', result)
+def result = 'OK : Processed ' + isOk
+//notifyEnded('sergey.shcherbovich@synesis.ru', 'severn-stage-1@appspot.gserviceaccount.com', result)
 result
 
 void notifyEnded(def reciever, def sender, def message) {

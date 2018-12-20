@@ -8,7 +8,7 @@ import com.severn.common.dao.AuthorizationDAO
 import com.severn.common.dao.UserDAO
 import com.severn.common.domain.User
 
-def userId = 6717908650557440L
+def userId = 6440846836629504L
 
 ApplicationContext ctx = binding.variables.get('applicationContext')
 UserDAO userDAO = ctx.getBean('userDAO')

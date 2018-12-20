@@ -53,8 +53,8 @@ GcsFileOptions gcsFileOptions = new GcsFileOptions.Builder().mimeType(MediaType.
 GcsService gcsService = GcsUtils.getRetryGcsService()
 
 // GcsFilename emailsCsv = new GcsFilename('serg-test', 'emails.csv')
-GcsFilename emailsCsv = new GcsFilename('serg-test', 'Cleaned.txt')
-GcsFilename guidsCsv  = new GcsFilename('serg-test', 'guids.csv')
+GcsFilename emailsCsv = new GcsFilename('serg-test', 'eu.csv')
+GcsFilename guidsCsv  = new GcsFilename('serg-test', 'eu-guids.csv')
 
 BufferedReader reader = new BufferedReader(Channels.newReader(gcsService.openReadChannel(emailsCsv, 0), "UTF-8"))
 Writer writer = Channels.newWriter(gcsService.createOrReplace(guidsCsv, gcsFileOptions), "UTF-8")
@@ -66,11 +66,14 @@ CSVPrinter csvPrinter = new CSVPrinter(writer,
 CSVFormat.EXCEL.withDelimiter(',' as char)
     .parse(reader).iterator().each { CSVRecord record ->
     String email = record.get(0) as String
+    String guid  = record.get(1) as String
 
     String[] pfs = email.split('@')
     String prefix = pfs ? pfs[0] : ''
+    String newGuid = guid ? guid : "${prefix}-${UUID.randomUUID()}-${UUID.randomUUID()}".toString()
+    
 
-    csvPrinter.printRecord(email, "${prefix}-${UUID.randomUUID()}-${UUID.randomUUID()}")
+    csvPrinter.printRecord(email, newGuid)
 }
 
 csvPrinter.flush()

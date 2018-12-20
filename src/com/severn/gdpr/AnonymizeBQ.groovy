@@ -18,7 +18,7 @@ import com.severn.common.bigquery.BigQueryServiceSupportUtils
 import com.severn.common.dao.UserDAO
 import com.severn.common.spring.AppContextProvider
 
-def userIds = [6440846836629504] //[5964688877682688, 5628978463244288, 5457462165504000]
+def userIds = [5174950778896384] //[5964688877682688, 5628978463244288, 5457462165504000]
 def socialIds = userIds.collect { id -> bean(UserDAO.class).getUser(id)?.socialId }.findAll { socId -> socId }.collect { it -> "'${it}'" }
 //socialIds << [130713757786657].collect { it -> "'${it}'" }
 

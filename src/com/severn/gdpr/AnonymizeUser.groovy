@@ -33,7 +33,7 @@ UserDAO userDAO = ctx.getBean('userDAO')
 AuthorizationDAO authorizationDAO = ctx.getBean('authorizationDAO')
 
 Logger logger = Logger.getLogger('com.severn')
-def userId = 6717908650557440L
+def userId = 5457462165504000L
 
 User user = userDAO.getUser(userId)
 

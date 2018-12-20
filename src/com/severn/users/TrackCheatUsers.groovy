@@ -49,7 +49,7 @@ Logger logger = Logger.getLogger('com.severn')
 GcsFileOptions gcsFileOptions = new GcsFileOptions.Builder().mimeType(MediaType.TEXT_PLAIN_VALUE).build()
 GcsService gcsService = GcsUtils.getRetryGcsService()
 
-GcsFilename cheatsCsv = new GcsFilename('gambino-slots-events-temp', 'cheat_users.csv')
+GcsFilename cheatsCsv = new GcsFilename('gambino-slots-events', 'cheat_user_info/2017/12/20/cheat_users.csv')
 Writer writer = Channels.newWriter(gcsService.createOrReplace(cheatsCsv, gcsFileOptions), "UTF-8")
 
 long ts = System.currentTimeMillis() / 1000
